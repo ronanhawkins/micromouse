@@ -37,8 +37,8 @@ constexpr int PIN_BUTTON = 9;   // onboard BOOT button, active low
 // ------------------------------------------------------------- polarity ----
 // Set during bring-up: the `enc` command must count UP when a wheel is
 // turned forwards by hand; `motor` must drive each wheel forwards.
-constexpr bool INVERT_ENC_L = false;
-constexpr bool INVERT_ENC_R = true;  // mirrored motor: likely, confirm with `enc`
+constexpr bool INVERT_ENC_L = false;  // motor_test: enc1 counts up forwards
+constexpr bool INVERT_ENC_R = true;   // motor_test: enc2 counted down forwards
 constexpr bool INVERT_MOTOR_L = true;   // confirmed with tools/motor_test
 constexpr bool INVERT_MOTOR_R = false;  // not yet confirmed (channel 2 fault)
 constexpr bool INVERT_GYRO = true;     // confirmed: left turn read -90 before inverting

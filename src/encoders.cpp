@@ -32,10 +32,11 @@ bool setupUnit(int index, int pinA, int pinB) {
   pcnt_channel_handle_t chanB;
   if (pcnt_new_channel(units[index], &bCfg, &chanB) != ESP_OK) return false;
 
-  // Standard x4 quadrature decode (as in the ESP-IDF rotary encoder example).
-  pcnt_channel_set_edge_action(chanA, PCNT_CHANNEL_EDGE_ACTION_DECREASE, PCNT_CHANNEL_EDGE_ACTION_INCREASE);
+  // x4 quadrature decode. Counts up when B leads A, the same sign convention
+  // as tools/motor_test, so the INVERT_ENC_* flags mean the same in both.
+  pcnt_channel_set_edge_action(chanA, PCNT_CHANNEL_EDGE_ACTION_INCREASE, PCNT_CHANNEL_EDGE_ACTION_DECREASE);
   pcnt_channel_set_level_action(chanA, PCNT_CHANNEL_LEVEL_ACTION_KEEP, PCNT_CHANNEL_LEVEL_ACTION_INVERSE);
-  pcnt_channel_set_edge_action(chanB, PCNT_CHANNEL_EDGE_ACTION_INCREASE, PCNT_CHANNEL_EDGE_ACTION_DECREASE);
+  pcnt_channel_set_edge_action(chanB, PCNT_CHANNEL_EDGE_ACTION_DECREASE, PCNT_CHANNEL_EDGE_ACTION_INCREASE);
   pcnt_channel_set_level_action(chanB, PCNT_CHANNEL_LEVEL_ACTION_KEEP, PCNT_CHANNEL_LEVEL_ACTION_INVERSE);
 
   // Needed for accum_count: the driver folds overflows in at these points.
