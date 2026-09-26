@@ -307,19 +307,28 @@ void setup() {
 void loop() {
   static char line[64];
   static int len = 0;
+  static unsigned long lastChar = 0;
+  auto runLine = [&]() {
+    line[len] = 0;
+    Serial.println();
+    handleCommand(line);
+    len = 0;
+  };
   while (Serial.available()) {
     char c = Serial.read();
+    lastChar = millis();
     if (c == '\r' || c == '\n') {
-      if (len) {
-        line[len] = 0;
-        Serial.printf("> %s\n", line);
-        handleCommand(line);
-        len = 0;
-      }
-    } else if (len < int(sizeof line) - 1) {
+      if (len) runLine();
+    } else if ((c == '\b' || c == 127) && len > 0) {
+      len--;
+      Serial.print("\b \b");
+    } else if (len < int(sizeof line) - 1 && c >= ' ') {
       line[len++] = c;
+      Serial.print(c);  // echo: most serial monitors don't show what you type
     }
   }
+  // Monitors set to "No line ending" never send Enter: run after a pause.
+  if (len && millis() - lastChar > 1000) runLine();
 
   if (uiButtonDown()) {
     unsigned long ms = uiWaitPress();

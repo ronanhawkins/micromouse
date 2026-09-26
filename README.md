@@ -10,7 +10,7 @@ A classic 16×16 micromouse (UKMARS rules: 180 mm cells, start in a corner, 2×2
 - 3× VL53L0X ToF sensors (left, front, right)
 - 2S battery → 5 V buck
 
-The wiring is in `WhatsApp Image 2026-09-26 at 12.43.39.jpeg`. Every pin is in [`src/config.h`](src/config.h).
+The original wiring diagram is `WhatsApp Image 2026-09-26 at 12.43.39.jpeg`, but the pins have since changed: [`src/config.h`](src/config.h) is the source of truth.
 
 ## Layout
 
@@ -53,7 +53,7 @@ The platform is pinned to pioarduino 55.03.311 (Arduino core 3.3.11), because la
 Everything marked `CALIBRATE` in `src/config.h` is a placeholder until you measure it.
 
 1. **`i2c`**: should list 0x68 (MPU-6050) and 0x30/0x31/0x32 (the ToF sensors after they're readdressed).
-   - If nothing appears, swap `PIN_I2C_SDA`/`PIN_I2C_SCL`.
+   - If nothing appears, check the SDA (GPIO22) / SCL (GPIO21) wiring.
    - If one ToF shows at 0x29 or is missing, check its XSHUT wire.
 2. **`imu`**: the rate should sit near 0 at rest. Turn the mouse 90° left by hand and the angle should read about +90. If it reads −90, set `INVERT_GYRO`.
 3. **`tof`**: put the mouse centred in a cell with walls on both sides and ahead. Set `SIDE_NOMINAL_MM` and `FRONT_CENTRED_MM` from the readings. Then check that `SIDE_WALL_MM` and `FRONT_WALL_MM` separate "wall" from "open" readings cleanly.
@@ -83,5 +83,5 @@ Everything marked `CALIBRATE` in `src/config.h` is a placeholder until you measu
 
 ## Not done yet / next steps
 - Continuous search (sensing walls while moving) and smooth turns for the speed run. Currently every turn is an in-place turn from a stop.
-- There's no battery-voltage sensing, so feedforward drifts as the pack drains. A divider into GPIO1 (ADC) would fix this.
+- There's no battery-voltage sensing, so feedforward drifts as the pack drains. A divider into a free ADC pin would fix this (GPIO1 is now a motor pin).
 - `ukmars/mazerunner-core` (MIT) is a good reference for tuning the controller and for smooth turns.

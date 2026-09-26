@@ -19,8 +19,10 @@ void storageSaveMaze(const mm::Maze& maze) {
 bool storageLoadMaze(mm::Maze& maze) {
   uint8_t buf[mm::CELL_COUNT];
   Preferences p;
-  p.begin(NS, true);
-  size_t n = p.getBytes(KEY, buf, sizeof buf);
+  // Read-write so the namespace is created on first boot (read-only logs
+  // "nvs_open failed: NOT_FOUND" when it doesn't exist yet).
+  p.begin(NS, false);
+  size_t n = p.isKey(KEY) ? p.getBytes(KEY, buf, sizeof buf) : 0;
   p.end();
   if (n != sizeof buf) return false;
   for (int i = 0; i < mm::CELL_COUNT; i++) maze.setRaw(i, buf[i]);

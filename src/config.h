@@ -6,22 +6,21 @@
 #include <stdint.h>
 
 // ---------------------------------------------------------------- pins ----
-// From the wiring diagram (WhatsApp Image 2026-09-26 at 12.43.39.jpeg).
-constexpr int PIN_ENC_L_A = 21;
-constexpr int PIN_ENC_L_B = 22;
-constexpr int PIN_ENC_R_A = 11;
-constexpr int PIN_ENC_R_B = 23;
+// Rewired 2026-09-26 (the original diagram image is out of date).
+// Motor 1 / encoder 1 = left, motor 2 / encoder 2 = right. Encoder A = C1, B = C2.
+constexpr int PIN_ENC_L_A = 3;
+constexpr int PIN_ENC_L_B = 2;
+constexpr int PIN_ENC_R_A = 4;  // GPIO4/5 are strapping pins: if the board won't
+constexpr int PIN_ENC_R_B = 5;  // boot/flash with encoders attached, look here
 
-// DFRobot DRI0044 (TB6612FNG with DIR/PWM inputs). Motor 1 = left.
+// DFRobot DRI0044 (TB6612FNG with DIR/PWM inputs).
 constexpr int PIN_MOTOR_L_DIR = 0;
-constexpr int PIN_MOTOR_L_PWM = 2;
-constexpr int PIN_MOTOR_R_DIR = 3;
-constexpr int PIN_MOTOR_R_PWM = 10;
+constexpr int PIN_MOTOR_L_PWM = 1;
+constexpr int PIN_MOTOR_R_DIR = 6;
+constexpr int PIN_MOTOR_R_PWM = 7;
 
-// The diagram joins GPIO6/7 into one bus line without saying which is SDA.
-// If the `i2c` scan finds nothing, swap these two.
-constexpr int PIN_I2C_SDA = 6;
-constexpr int PIN_I2C_SCL = 7;
+constexpr int PIN_I2C_SDA = 22;
+constexpr int PIN_I2C_SCL = 21;
 constexpr uint32_t I2C_HZ = 400000;
 
 constexpr int PIN_XSHUT_L = 18;
@@ -40,15 +39,15 @@ constexpr int PIN_BUTTON = 9;   // onboard BOOT button, active low
 // turned forwards by hand; `motor` must drive each wheel forwards.
 constexpr bool INVERT_ENC_L = false;
 constexpr bool INVERT_ENC_R = true;  // mirrored motor: likely, confirm with `enc`
-constexpr bool INVERT_MOTOR_L = false;
-constexpr bool INVERT_MOTOR_R = true;  // mirrored motor: likely, confirm with `motor`
-constexpr bool INVERT_GYRO = false;    // `imu`: turning left (CCW from above) must be +
+constexpr bool INVERT_MOTOR_L = true;   // confirmed with tools/motor_test
+constexpr bool INVERT_MOTOR_R = false;  // not yet confirmed (channel 2 fault)
+constexpr bool INVERT_GYRO = true;     // confirmed: left turn read -90 before inverting
 
 // ------------------------------------------------------------ geometry ----
 constexpr float WHEEL_DIAMETER_MM = 44.0f;
-// CALIBRATE: `enc`, turn a wheel exactly 10 revolutions, divide by 10.
-// Placeholder assumes a 7-pulse encoder x4 edges x 30:1 gearbox.
-constexpr float COUNTS_PER_WHEEL_REV = 840.0f;
+// Measured ~800 with `enc`. CALIBRATE precisely: turn a wheel exactly 10
+// revolutions and divide by 10, then fine-tune with `fwd 900`.
+constexpr float COUNTS_PER_WHEEL_REV = 800.0f;
 constexpr float MM_PER_COUNT = 3.14159265f * WHEEL_DIAMETER_MM / COUNTS_PER_WHEEL_REV;
 // CALIBRATE: distance between the wheel contact centres.
 constexpr float WHEELBASE_MM = 75.0f;
