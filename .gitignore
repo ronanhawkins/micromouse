@@ -1,0 +1,6 @@
+.pio/
+.vscode/
+.DS_Store
+tools/sim/sim
+tools/sim/*.o
+third_party/

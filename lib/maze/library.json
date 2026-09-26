@@ -1,0 +1,7 @@
+{
+  "name": "maze",
+  "version": "0.1.0",
+  "description": "Hardware-independent micromouse maze map, flood fill, path planning and explorer",
+  "frameworks": "*",
+  "platforms": "*"
+}
