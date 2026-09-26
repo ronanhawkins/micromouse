@@ -24,8 +24,8 @@ constexpr uint8_t TOF_ADDR[3] = {0x30, 0x31, 0x32};
 constexpr uint8_t IMU_ADDR = 0x68;
 
 // Flip a motor's direction if "forwards" turns its wheel backwards.
-constexpr bool INVERT1 = true;
-constexpr bool INVERT2 = false;
+constexpr bool INVERT1 = false;
+constexpr bool INVERT2 = true;
 
 constexpr uint32_t PWM_HZ = 20000;
 constexpr uint8_t PWM_BITS = 10;

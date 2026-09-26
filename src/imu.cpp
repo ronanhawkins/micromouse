@@ -4,6 +4,7 @@
 
 #include "config.h"
 #include "i2c_bus.h"
+#include "polarity.h"
 
 namespace {
 
@@ -25,14 +26,24 @@ void writeReg(uint8_t reg, uint8_t v) {
   Wire.endTransmission();
 }
 
+// On a failed read (e.g. motor noise on the bus) repeat the last good value
+// rather than returning 0, which would look like a sudden stop in rotation.
+int16_t lastRaw = 0;
+uint32_t readErrors = 0;
+
 int16_t readRawZ() {
   Wire.beginTransmission(IMU_ADDR);
   Wire.write(REG_GYRO_ZOUT_H);
-  if (Wire.endTransmission(false) != 0) return 0;
-  if (Wire.requestFrom(IMU_ADDR, uint8_t(2)) != 2) return 0;
+  if (Wire.endTransmission(false) != 0 || Wire.requestFrom(IMU_ADDR, uint8_t(2)) != 2) {
+    readErrors++;
+    i2cResult(false);
+    return lastRaw;
+  }
+  i2cResult(true);
   uint8_t hi = Wire.read();
   uint8_t lo = Wire.read();
-  return int16_t((hi << 8) | lo);
+  lastRaw = int16_t((hi << 8) | lo);
+  return lastRaw;
 }
 
 }  // namespace
@@ -55,6 +66,8 @@ bool imuBegin() {
   return true;
 }
 
+uint32_t imuReadErrors() { return readErrors; }
+
 void imuCalibrate(int samples) {
   if (!present) return;
   float sum = 0;
@@ -76,5 +89,5 @@ float imuReadZ() {
     raw = readRawZ();
   }
   float dps = (raw - bias) / LSB_PER_DPS;
-  return INVERT_GYRO ? -dps : dps;
+  return polarity.gyro ? -dps : dps;
 }

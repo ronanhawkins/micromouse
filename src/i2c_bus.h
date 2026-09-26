@@ -16,3 +16,9 @@ struct I2CGuard {
 
 // Print every responding address to Serial.
 void i2cScan();
+
+// Report each transaction's outcome (while holding the lock). After a few
+// failures in a row the bus is reset: the ESP32 I2C driver can otherwise
+// stay stuck returning ESP_ERR_INVALID_STATE forever after one error.
+void i2cResult(bool ok);
+uint32_t i2cRecoveries();

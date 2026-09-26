@@ -44,9 +44,22 @@ bool HwMouse::forward(int cells) {
   return alignToFrontWall();
 }
 
+bool HwMouse::quarterTurn(float deg) {
+  // Back off so the long front corners clear the wall ahead (see config.h).
+  // The mouse ends up this far off-centre sideways, which the side-wall
+  // steering (or the next front-wall alignment) removes.
+  return motionMove(-TURN_PIVOT_BACK_MM, speeds_.straight / 4, 0, speeds_.accel) &&
+         motionTurn(deg, speeds_.turnRate, speeds_.turnAccel);
+}
+
 bool HwMouse::turn(mm::Move::Type type) {
-  float deg = type == mm::Move::TURN_LEFT ? 90 : type == mm::Move::TURN_RIGHT ? -90 : 180;
-  return motionTurn(deg, speeds_.turnRate, speeds_.turnAccel);
+  if (type == mm::Move::TURN_LEFT) return quarterTurn(90);
+  if (type == mm::Move::TURN_RIGHT) return quarterTurn(-90);
+  // About-turn: right, line up on the (side) wall now ahead, right again.
+  // The first back-off is now along the new heading (the mouse is that far
+  // ahead of centre), so reverse it.
+  return quarterTurn(-90) && alignToFrontWall() && quarterTurn(-90) &&
+         motionMove(-TURN_PIVOT_BACK_MM, speeds_.straight / 4, 0, speeds_.accel);
 }
 
 void HwMouse::mapUpdated(const mm::Maze& maze) {

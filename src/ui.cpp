@@ -7,65 +7,97 @@
 
 namespace {
 
-UiColour current = UiColour::OFF;
+volatile UiColour current = UiColour::OFF;
+volatile bool flashRequested = false;
 
-void show(UiColour c) {
-  uint8_t r = 0, g = 0, b = 0;
+struct Rgb {
+  uint8_t r, g, b;
+};
+
+Rgb colourOf(UiColour c) {
   switch (c) {
-    case UiColour::OFF: break;
-    case UiColour::IDLE: b = 20; break;
-    case UiColour::WAITING: r = 20; g = 12; break;
-    case UiColour::SEARCH: g = 10; b = 20; break;
-    case UiColour::RUN: r = 20; g = 0; b = 20; break;
-    case UiColour::DONE: g = 25; break;
-    case UiColour::ERROR: r = 30; break;
+    case UiColour::IDLE: return {0, 0, 20};
+    case UiColour::WAITING: return {20, 12, 0};
+    case UiColour::HANDS_OFF: return {40, 0, 0};
+    case UiColour::SEARCH: return {0, 10, 20};
+    case UiColour::RUN: return {20, 0, 20};
+    case UiColour::DONE: return {0, 25, 0};
+    case UiColour::ERROR: return {30, 0, 0};
+    case UiColour::HELD_LONG: return {25, 25, 25};
+    default: return {0, 0, 0};
   }
-  rgbLedWrite(PIN_STATUS_LED, r, g, b);
+}
+
+// Blink period in ms, 0 = steady.
+int blinkPeriod(UiColour c) {
+  if (c == UiColour::WAITING) return 600;
+  if (c == UiColour::HANDS_OFF) return 150;
+  return 0;
+}
+
+// The only place the LED is written, so callers never block on it.
+void ledTask(void*) {
+  Rgb shown{255, 255, 255};
+  for (;;) {
+    Rgb want = colourOf(current);
+    int period = blinkPeriod(current);
+    if (period && (millis() % period) >= unsigned(period / 2)) want = {0, 0, 0};
+    if (flashRequested) {
+      flashRequested = false;
+      rgbLedWrite(PIN_STATUS_LED, 25, 25, 25);
+      vTaskDelay(pdMS_TO_TICKS(40));
+      shown = {255, 255, 255};  // force a rewrite
+    }
+    if (want.r != shown.r || want.g != shown.g || want.b != shown.b) {
+      rgbLedWrite(PIN_STATUS_LED, want.r, want.g, want.b);
+      shown = want;
+    }
+    vTaskDelay(pdMS_TO_TICKS(20));
+  }
 }
 
 }  // namespace
 
 void uiBegin() {
   pinMode(PIN_BUTTON, INPUT_PULLUP);
-  uiSet(UiColour::IDLE);
+  current = UiColour::IDLE;
+  xTaskCreate(ledTask, "led", 2048, nullptr, 2, nullptr);
 }
 
-void uiSet(UiColour c) {
-  current = c;
-  show(c);
-}
+void uiSet(UiColour c) { current = c; }
 
-void uiBlink() {
-  rgbLedWrite(PIN_STATUS_LED, 20, 20, 20);
-  delay(15);
-  show(current);
-}
+void uiBlink() { flashRequested = true; }
 
 bool uiButtonDown() { return digitalRead(PIN_BUTTON) == LOW; }
 
 unsigned long uiWaitPress() {
   while (!uiButtonDown()) delay(5);
   unsigned long t0 = millis();
-  while (uiButtonDown()) delay(5);
+  UiColour before = current;
+  while (uiButtonDown()) {
+    if (millis() - t0 > UI_LONG_PRESS_MS) uiSet(UiColour::HELD_LONG);
+    delay(5);
+  }
+  uiSet(before);
   delay(30);  // debounce
   return millis() - t0;
 }
 
 void uiWaitStart() {
-  UiColour before = current;
   uiSet(UiColour::WAITING);
   // Hand (or anything) close in front, or the button.
   for (;;) {
     if (uiButtonDown()) {
+      uiSet(UiColour::HANDS_OFF);
       while (uiButtonDown()) delay(5);
       break;
     }
     if (tofMm(TOF_FRONT) < 40) {
+      uiSet(UiColour::HANDS_OFF);
       while (tofMm(TOF_FRONT) < 80) delay(5);
       break;
     }
     delay(5);
   }
-  uiSet(before);
   delay(1000);  // hands off
 }

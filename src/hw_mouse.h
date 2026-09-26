@@ -25,6 +25,7 @@ class HwMouse : public mm::MouseIO {
  private:
   // Stopped with a wall ahead: nudge to the exact cell centre.
   bool alignToFrontWall();
+  bool quarterTurn(float deg);
 
   SpeedSet speeds_ = SEARCH_SPEEDS;
 };

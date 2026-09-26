@@ -1,6 +1,7 @@
 #include "motion.h"
 
 #include <Arduino.h>
+#include <esp_timer.h>
 
 #include "encoders.h"
 #include "imu.h"
@@ -19,7 +20,7 @@ volatile bool steering = false;
 volatile bool aborted = false;
 volatile bool resetRequested = false;
 
-float fwdError = 0, rotError = 0;
+volatile float fwdError = 0, rotError = 0;
 float lastFwdError = 0, lastRotError = 0;
 float distanceMm = 0, angleDeg = 0;
 int32_t lastL = 0, lastR = 0;
@@ -55,20 +56,29 @@ void controlTick() {
   lastR = r;
   float gyro = imuReadZ();
 
+  // Integrate the gyro over the real time since the last tick, so a late or
+  // skipped tick doesn't lose rotation.
+  static int64_t lastUs = esp_timer_get_time();
+  int64_t nowUs = esp_timer_get_time();
+  float dt = (nowUs - lastUs) * 1e-6f;
+  lastUs = nowUs;
+  if (dt > 0.05f) dt = 0.05f;
+
   float dFwd = (dl + dr) / 2;
-  float dRot = gyro * CONTROL_DT;
+  float dRot = gyro * dt;
   distanceMm += dFwd;
   angleDeg += dRot;
 
   if (resetRequested) {
-    fwdError = rotError = lastFwdError = lastRotError = 0;
+    fwdError = 0;
+    rotError = 0;
+    lastFwdError = lastRotError = 0;
     distanceMm = angleDeg = 0;
     resetRequested = false;
   }
-  if (!enabled || aborted) {
-    motorsOff();
-    return;
-  }
+  // Disabled: leave the motors alone (motionEnable(false) / abort already
+  // switched them off), so open-loop tests like `motor` can drive them.
+  if (!enabled || aborted) return;
 
   portENTER_CRITICAL(&mux);
   fwd.update(CONTROL_DT);
@@ -83,6 +93,9 @@ void controlTick() {
 
   float fwdOut = FWD_KP * fwdError + FWD_KD * (fwdError - lastFwdError) / CONTROL_DT;
   float rotOut = ROT_KP * rotError + ROT_KD * (rotError - lastRotError) / CONTROL_DT;
+  // Settling on a target with the profile stopped: kick past static friction.
+  if (fwd.finished() && fabsf(v) < 1 && fabsf(fwdError) > SETTLE_FWD_MM) fwdOut += copysignf(STICTION_VOLTS, fwdError);
+  if (rot.finished() && fabsf(w) < 1 && fabsf(rotError) > SETTLE_ROT_DEG) rotOut += copysignf(STICTION_VOLTS, rotError);
   lastFwdError = fwdError;
   lastRotError = rotError;
 
@@ -105,14 +118,27 @@ void controlTask(void*) {
   TickType_t last = xTaskGetTickCount();
   for (;;) {
     controlTick();
-    vTaskDelayUntil(&last, pdMS_TO_TICKS(CONTROL_PERIOD_MS));
+    // If a tick overran (e.g. I2C timeouts), don't try to catch up: that
+    // would run this top-priority task flat out, starve everything else and
+    // trip the watchdog (the mouse reboots). Always give up at least a tick.
+    if (xTaskDelayUntil(&last, pdMS_TO_TICKS(CONTROL_PERIOD_MS)) == pdFALSE) {
+      vTaskDelay(1);
+      last = xTaskGetTickCount();
+    }
   }
 }
 
-bool waitFor(Profile& p) {
+// Wait for the profile, then for the controller to pull the remaining
+// error in (the profile finishes on time whether or not the mouse kept up).
+bool waitFor(Profile& p, const volatile float& error, float tolerance) {
   while (!p.finished()) {
     if (aborted) return false;
     delay(1);
+  }
+  unsigned long start = millis();
+  while (fabsf(error) > tolerance && millis() - start < SETTLE_TIMEOUT_MS) {
+    if (aborted) return false;
+    delay(2);
   }
   return !aborted;
 }
@@ -146,14 +172,15 @@ bool motionMove(float mm, float topSpeed, float endSpeed, float accel) {
   portENTER_CRITICAL(&mux);
   fwd.start(mm, topSpeed, endSpeed, accel);
   portEXIT_CRITICAL(&mux);
-  return waitFor(fwd);
+  // Only settle when stopping; a move ending at speed hands straight on.
+  return waitFor(fwd, fwdError, endSpeed > 0 ? 1e9f : SETTLE_FWD_MM);
 }
 
 bool motionTurn(float deg, float rate, float accel) {
   portENTER_CRITICAL(&mux);
   rot.start(deg, rate, 0, accel);
   portEXIT_CRITICAL(&mux);
-  return waitFor(rot);
+  return waitFor(rot, rotError, SETTLE_ROT_DEG);
 }
 
 void motionSteering(bool on) { steering = on; }

@@ -21,9 +21,14 @@ volatile uint32_t seq[3];
 void poll(int i) {
   VL53L0X& s = sensors[i];
   I2CGuard g;
-  if ((s.readReg(VL53L0X::RESULT_INTERRUPT_STATUS) & 0x07) == 0) return;
+  uint8_t status = s.readReg(VL53L0X::RESULT_INTERRUPT_STATUS);
+  i2cResult(s.last_status == 0);
+  if (s.last_status != 0 || (status & 0x07) == 0) return;
   uint16_t range = s.readReg16Bit(VL53L0X::RESULT_RANGE_STATUS + 10);
+  bool ok = s.last_status == 0;
   s.writeReg(VL53L0X::SYSTEM_INTERRUPT_CLEAR, 0x01);
+  i2cResult(ok && s.last_status == 0);
+  if (!ok) return;
   // ~8190 means "nothing in range".
   mm[i] = range >= 8000 ? NO_READING : float(range);
   seq[i] = seq[i] + 1;

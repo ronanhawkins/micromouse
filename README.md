@@ -52,6 +52,8 @@ The platform is pinned to pioarduino 55.03.311 (Arduino core 3.3.11), because la
 
 Everything marked `CALIBRATE` in `src/config.h` is a placeholder until you measure it.
 
+0. **`check`**: measures which way the encoders, motors and gyro count, and saves the result to flash. It overrides the `INVERT_*` defaults in `config.h`. You push the mouse forwards, lift it while each motor is pulsed, then turn it left by hand. Run it again after any rewiring.
+
 1. **`i2c`**: should list 0x68 (MPU-6050) and 0x30/0x31/0x32 (the ToF sensors after they're readdressed).
    - If nothing appears, check the SDA (GPIO22) / SCL (GPIO21) wiring.
    - If one ToF shows at 0x29 or is missing, check its XSHUT wire.
@@ -74,12 +76,18 @@ Everything marked `CALIBRATE` in `src/config.h` is a placeholder until you measu
 **New maze? Clear the map first** (long-press BOOT or type `clear`). The saved map is loaded at boot and trusted, and cells already visited are never sensed again. Without clearing, the mouse will drive the old maze's walls.
 
 **LED:**
-- blue = idle
-- amber = waiting for start
-- cyan = searching
-- magenta = speed run
-- green = done
-- red = error
+
+| LED | Meaning |
+|---|---|
+| Blue, steady | Idle, ready |
+| White blip | Button press seen / new cell mapped |
+| Amber, slow blink | Waiting for the start signal |
+| **Red, fast flash** | Start seen: hands off, gyro calibrating |
+| Cyan | Searching (or returning home) |
+| Magenta | Speed run |
+| Green | Finished OK |
+| Red, steady | Error or aborted |
+| White, steady | BOOT held over 1.5 s: let go to clear the map |
 
 ## Not done yet / next steps
 - Continuous search (sensing walls while moving) and smooth turns for the speed run. Currently every turn is an in-place turn from a stop.

@@ -3,6 +3,7 @@
 #include <Arduino.h>
 
 #include "config.h"
+#include "polarity.h"
 
 namespace {
 
@@ -31,8 +32,8 @@ void motorsBegin() {
 }
 
 void motorsSetVolts(float left, float right) {
-  drive(PIN_MOTOR_L_DIR, PIN_MOTOR_L_PWM, INVERT_MOTOR_L, left);
-  drive(PIN_MOTOR_R_DIR, PIN_MOTOR_R_PWM, INVERT_MOTOR_R, right);
+  drive(PIN_MOTOR_L_DIR, PIN_MOTOR_L_PWM, polarity.motL, left);
+  drive(PIN_MOTOR_R_DIR, PIN_MOTOR_R_PWM, polarity.motR, right);
 }
 
 void motorsOff() {

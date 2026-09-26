@@ -16,6 +16,7 @@
 #include "imu.h"
 #include "motion.h"
 #include "motors.h"
+#include "polarity.h"
 #include "storage.h"
 #include "tof.h"
 #include "ui.h"
@@ -109,7 +110,7 @@ bool mazeReady() {
 
 // Wait for the start signal, calibrate the gyro while still, motors on.
 void armMotion() {
-  uiWaitStart();
+  uiWaitStart();  // LED flashes red from the start signal until we move
   imuCalibrate();
   motionEnable(true);
 }
@@ -165,8 +166,13 @@ void doRun() {
 
 void autoStart() {
   mm::Explorer ex(maze, hw);
-  if (ex.isProvenOptimal()) doRun();
-  else doSearch();
+  if (ex.isProvenOptimal()) {
+    Serial.println("route already proven: speed run");
+    doRun();
+  } else {
+    Serial.println("route not proven: search");
+    doSearch();
+  }
 }
 
 // ------------------------------------------------------ bring-up tests ----
@@ -223,14 +229,18 @@ void openLoopMotors(float l, float r, int ms) {
 
 void closedLoopMove(bool isTurn, float amount) {
   if (!motionReady()) return;
+  uiSet(UiColour::HANDS_OFF);
   imuCalibrate();
+  uiSet(UiColour::SEARCH);
   motionEnable(true);
   bool ok = isTurn ? motionTurn(amount, SEARCH_SPEEDS.turnRate, SEARCH_SPEEDS.turnAccel)
                    : motionMove(amount, SEARCH_SPEEDS.straight, 0, SEARCH_SPEEDS.accel);
   delay(200);
-  Serial.printf("%s: %s  encoders %.1f mm, gyro %.1f deg\n", isTurn ? "turn" : "fwd", ok ? "done" : "ABORTED",
-                motionDistanceMm(), motionAngleDeg());
+  Serial.printf("%s: %s  encoders %.1f mm, gyro %.1f deg, gyro read errors %lu, I2C resets %lu\n",
+                isTurn ? "turn" : "fwd", ok ? "done" : "ABORTED", motionDistanceMm(), motionAngleDeg(),
+                (unsigned long)imuReadErrors(), (unsigned long)i2cRecoveries());
   motionEnable(false);
+  uiSet(ok ? UiColour::IDLE : UiColour::ERROR);
 }
 
 void printWalls() {
@@ -241,9 +251,130 @@ void printWalls() {
                 w.front ? "WALL" : "open", d[2], w.right ? "WALL" : "open");
 }
 
+// Wait for any key, ignoring leftovers (e.g. the \n after a command's \r).
+void waitKey() {
+  delay(50);
+  while (Serial.available()) Serial.read();
+  while (!Serial.available()) delay(5);
+  while (Serial.available()) Serial.read();
+}
+
+// Measure every direction flag instead of guessing, then save them.
+void checkDirections() {
+  const Polarity old = polarity;
+  motionEnable(false);
+
+  // 1. Encoders: the user moves the mouse forwards by hand.
+  Serial.println("\n1/3 ENCODERS: put the mouse on the floor. Push it FORWARDS (the way the front");
+  Serial.println("    sensor faces) about 10 cm by hand, then press a key.");
+  polarity.encL = polarity.encR = false;
+  int32_t l0 = encoderLeft(), r0 = encoderRight();
+  waitKey();
+  int32_t dl = encoderLeft() - l0, dr = encoderRight() - r0;
+  Serial.printf("    raw counts: L %ld  R %ld\n", long(dl), long(dr));
+  if (labs(dl) < 100 || labs(dr) < 100) {
+    Serial.println("    a wheel barely counted: check that encoder's wiring. Aborting, nothing saved.");
+    polarity = old;
+    return;
+  }
+  polarity.encL = dl < 0;
+  polarity.encR = dr < 0;
+
+  // 2. Motors: drive each briefly and see which way its (now correct) encoder counts.
+  Serial.println("2/3 MOTORS: lift the mouse so the wheels spin freely, then press a key.");
+  waitKey();
+  polarity.motL = polarity.motR = false;
+  // Step the voltage up until the wheel clearly turns.
+  auto pulse = [](bool left) -> int32_t {
+    for (float v = 1.5f; v <= MAX_MOTOR_VOLTS; v += 0.5f) {
+      int32_t l0 = encoderLeft(), r0 = encoderRight();
+      motorsSetVolts(left ? v : 0, left ? 0 : v);
+      delay(300);
+      motorsOff();
+      delay(200);
+      int32_t dl = encoderLeft() - l0, dr = encoderRight() - r0;
+      int32_t d = left ? dl : dr, other = left ? dr : dl;
+      if (labs(other) >= 50 && labs(d) < labs(other)) {
+        Serial.printf("    driving the %s motor turned the %s encoder: the motor pins (or encoder pins)\n"
+                      "    for left and right are swapped in config.h\n",
+                      left ? "left" : "right", left ? "right" : "left");
+        return 0;
+      }
+      if (labs(d) >= 50) {
+        Serial.printf("    %s wheel turned at %.1f V: %ld counts\n", left ? "left" : "right", v, long(d));
+        return d;
+      }
+    }
+    Serial.printf("    %s wheel didn't turn even at %.1f V\n", left ? "left" : "right", MAX_MOTOR_VOLTS);
+    return 0;
+  };
+  dl = pulse(true);
+  dr = pulse(false);
+  if (dl == 0 || dr == 0) {
+    Serial.println("    check the motor battery is connected and switched on, and that motor's wiring.");
+    Serial.println("    Aborting, nothing saved.");
+    polarity = old;
+    return;
+  }
+  polarity.motL = dl < 0;
+  polarity.motR = dr < 0;
+
+  // 3. Gyro: the user turns the mouse left by hand.
+  Serial.println("3/3 GYRO: put the mouse on the floor and keep it still, then press a key.");
+  waitKey();
+  polarity.gyro = false;
+  imuCalibrate();
+  Serial.println("    now turn it LEFT (anticlockwise seen from above) about 90 deg, then press a key.");
+  delay(50);
+  while (Serial.available()) Serial.read();
+  float angle = 0;
+  unsigned long last = micros();
+  while (!Serial.available()) {
+    unsigned long now = micros();
+    angle += imuReadZ() * (now - last) * 1e-6f;
+    last = now;
+    delay(2);
+  }
+  while (Serial.available()) Serial.read();
+  Serial.printf("    measured %.0f deg\n", angle);
+  if (fabsf(angle) < 30) {
+    Serial.println("    barely any rotation seen: check the IMU. Aborting, nothing saved.");
+    polarity = old;
+    return;
+  }
+  polarity.gyro = angle < 0;
+
+  polaritySave();
+  auto flag = [](bool v) { return v ? "invert" : "normal"; };
+  Serial.printf("saved: encoder L %s R %s | motor L %s R %s | gyro %s\n", flag(polarity.encL), flag(polarity.encR),
+                flag(polarity.motL), flag(polarity.motR), flag(polarity.gyro));
+  imuCalibrate();
+}
+
+// Front-sensor target for "axle at the cell centre". With the mouse's back
+// against a wall its axle sits a known distance behind the centre, so a
+// temporary wall across the far side of that cell gives an exact reading.
+void calibrateFront() {
+  const float axleBehindCentre = CELL_MM / 2 - HALF_WALL_MM - BACK_TO_AXLE_MM;
+  Serial.println("calfront: in the start cell, put the mouse's back against the back wall, centred,");
+  Serial.println("          and put a wall across the far (open) side of the cell. Then press a key.");
+  waitKey();
+  float d[3];
+  tofAverage(10, d);
+  if (d[TOF_FRONT] >= 9000) {
+    Serial.println("no front reading: is the wall there?");
+    return;
+  }
+  Serial.printf("front reads %.0f mm here, so at the cell centre it should read %.0f mm\n", d[TOF_FRONT],
+                d[TOF_FRONT] - axleBehindCentre);
+  Serial.printf("-> set FRONT_CENTRED_MM = %.0f in config.h (currently %.0f)\n", d[TOF_FRONT] - axleBehindCentre,
+                FRONT_CENTRED_MM);
+}
+
 void help() {
   Serial.println(
-      "bring-up:  i2c | imu | tof | enc | motor <Lvolts> <Rvolts> [ms] | fwd <mm> | turn <deg> | walls\n"
+      "bring-up:  check (measure motor/encoder/gyro directions) | calfront | i2c | imu | tof | enc\n"
+      "           motor <Lvolts> <Rvolts> [ms] | fwd <mm> | turn <deg> | walls\n"
       "maze:      search | run | maze | clear\n"
       "BOOT button: short press = search or run, long press = clear maze");
 }
@@ -264,6 +395,8 @@ void handleCommand(char* line) {
   else if (!strcmp(cmd, "fwd") && a1) closedLoopMove(false, atof(a1));
   else if (!strcmp(cmd, "turn") && a1) closedLoopMove(true, atof(a1));
   else if (!strcmp(cmd, "walls")) printWalls();
+  else if (!strcmp(cmd, "check")) checkDirections();
+  else if (!strcmp(cmd, "calfront")) calibrateFront();
   else if (!strcmp(cmd, "search")) doSearch();
   else if (!strcmp(cmd, "run")) doRun();
   else if (!strcmp(cmd, "maze")) {
@@ -283,11 +416,26 @@ void handleCommand(char* line) {
 
 }  // namespace
 
+const char* resetReasonText() {
+  switch (esp_reset_reason()) {
+    case ESP_RST_POWERON: return "power on";
+    case ESP_RST_SW: return "software restart";
+    case ESP_RST_PANIC: return "CRASH (panic)";
+    case ESP_RST_INT_WDT: return "CRASH (interrupt watchdog)";
+    case ESP_RST_TASK_WDT: return "CRASH (task watchdog: something hogged the CPU)";
+    case ESP_RST_WDT: return "CRASH (watchdog)";
+    case ESP_RST_BROWNOUT: return "BROWNOUT (supply voltage dipped)";
+    case ESP_RST_EXT: return "reset pin";
+    default: return "other";
+  }
+}
+
 void setup() {
   Serial.begin(115200);
   delay(500);
-  Serial.println("\nmicromouse");
+  Serial.printf("\nmicromouse (last reset: %s)\n", resetReasonText());
 
+  polarityLoad();
   uiBegin();
   motorsBegin();
   encOk = encodersBegin();
@@ -332,13 +480,14 @@ void loop() {
 
   if (uiButtonDown()) {
     unsigned long ms = uiWaitPress();
-    if (ms > 1500) {
+    uiBlink();  // press seen
+    if (ms > UI_LONG_PRESS_MS) {
+      Serial.printf("BOOT long press (%lu ms): maze cleared\n", ms);
       maze.reset();
       storageClearMaze();
-      Serial.println("maze cleared");
-      uiBlink();
-      uiBlink();
+      uiSet(UiColour::IDLE);
     } else {
+      Serial.printf("BOOT short press (%lu ms)\n", ms);
       autoStart();
     }
   }

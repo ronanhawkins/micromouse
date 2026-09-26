@@ -4,6 +4,7 @@
 #include <driver/pulse_cnt.h>
 
 #include "config.h"
+#include "polarity.h"
 
 namespace {
 
@@ -33,7 +34,7 @@ bool setupUnit(int index, int pinA, int pinB) {
   if (pcnt_new_channel(units[index], &bCfg, &chanB) != ESP_OK) return false;
 
   // x4 quadrature decode. Counts up when B leads A, the same sign convention
-  // as tools/motor_test, so the INVERT_ENC_* flags mean the same in both.
+  // as tools/motor_test, so the direction flags mean the same in both.
   pcnt_channel_set_edge_action(chanA, PCNT_CHANNEL_EDGE_ACTION_INCREASE, PCNT_CHANNEL_EDGE_ACTION_DECREASE);
   pcnt_channel_set_level_action(chanA, PCNT_CHANNEL_LEVEL_ACTION_KEEP, PCNT_CHANNEL_LEVEL_ACTION_INVERSE);
   pcnt_channel_set_edge_action(chanB, PCNT_CHANNEL_EDGE_ACTION_DECREASE, PCNT_CHANNEL_EDGE_ACTION_INCREASE);
@@ -62,5 +63,5 @@ bool encodersBegin() {
   return setupUnit(0, PIN_ENC_L_A, PIN_ENC_L_B) && setupUnit(1, PIN_ENC_R_A, PIN_ENC_R_B);
 }
 
-int32_t encoderLeft() { return read(0, INVERT_ENC_L); }
-int32_t encoderRight() { return read(1, INVERT_ENC_R); }
+int32_t encoderLeft() { return read(0, polarity.encL); }
+int32_t encoderRight() { return read(1, polarity.encR); }
